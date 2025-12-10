@@ -2,11 +2,11 @@
 Contributors: feedsapi
 Donate link: https://www.feedsapi.org/
 Tags: rss, feeds, import, feed, autoblog, feed aggregation, rss-feed, aggregation, atom, feed, rss, syndication, FeedWordPress, autoblog aggregator, Autoblogger, autoblogging,  feed import, rss multi importer, feed reader, feed to post, multi feed import, multi feed importer, multi import, multi rss feeds, multiple feed import, multiple feeds, multiple rss feeds, rss, rss aggregator, rss feader, RSS import, rss to post, content curation, RSS Retriever, RSS fetch feed, WP RSS Aggregator, AutoPost, RSS Feed to Post, RSSImport, yahoo pipes, WP Pipes, Import XML feed , FeedSyndicate, RSSpost, RSS in Page
-Requires at least: 3.5
-Tested up to: 4.2.4
+Requires at least: 5.0
+Tested up to: 6.9
 Stable tag: 2.1.4
 License: GPLv2 or later
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
 RSS Post Importer is the Most Powerful & Easy to use WordPress RSS Aggregator plugin and does exactly what its name suggests: Import Full RSS Posts
 

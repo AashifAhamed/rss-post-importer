@@ -33,49 +33,80 @@ class rssPIAdmin {
 	 * @global object $rss_post_importer
 	 */
 	public function __construct() {
+		try {
+			$this->load_options();
 
-		$this->load_options();
+			// add a key prompt
+			if (function_exists('__')) {
+				$this->key_prompt = __('%1$sYou need a <a href="%2$s" target="_blank">Full Text RSS Key</a> to activate this section, please <a href="%2$s" target="_blank">get one and try it free</a> for the next 14 days to see how it goes.', 'rss_pi');
+			} else {
+				$this->key_prompt = '%1$sYou need a <a href="%2$s" target="_blank">Full Text RSS Key</a> to activate this section, please <a href="%2$s" target="_blank">get one and try it free</a> for the next 14 days to see how it goes.';
+			}
 
-		// add a key prompt
-		$this->key_prompt = __('%1$sYou need a <a href="%2$s" target="_blank">Full Text RSS Key</a> to activate this section, please <a href="%2$s" target="_blank">get one and try it free</a> for the next 14 days to see how it goes.', 'rss_pi');
+			// initialise logging
+			if (class_exists('rssPILog')) {
+				$this->log = new rssPILog();
+				if (method_exists($this->log, 'init')) {
+					$this->log->init();
+				}
+			}
 
-		// initialise logging
-		$this->log = new rssPILog();
-		$this->log->init();
-
-		// load the form processor
-		$this->processor = new rssPIAdminProcessor();
+			// load the form processor
+			if (class_exists('rssPIAdminProcessor')) {
+				$this->processor = new rssPIAdminProcessor();
+			}
+		} catch (Exception $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('RSS Post Importer: Error in rssPIAdmin constructor - ' . $e->getMessage());
+			}
+		}
 	}
 
 	private function load_options() {
 		global $rss_post_importer;
 
-		// add options
-		$this->options = $rss_post_importer->options;
+		try {
+			// add options
+			if (isset($rss_post_importer) && isset($rss_post_importer->options)) {
+				$this->options = $rss_post_importer->options;
+			} else {
+				$this->options = array('feeds' => array(), 'settings' => array());
+			}
 
 		// check for valid key when we don't have it cached
-		// actually this populates the settings with our defaults on the first plugin activation
+		// Plugin works standalone - API key is optional
 		if ( !isset($this->options['settings']['is_key_valid']) ) {
-			// check if key is valid
-			$this->is_key_valid = $rss_post_importer->is_valid_key($this->options['settings']['feeds_api_key']);
-			$this->options['settings']['is_key_valid'] = $this->is_key_valid;
-			// if the key is not fine
-			if (!empty($this->options['settings']['feeds_api_key']) && !$this->is_key_valid) {
-				// unset from settings
-				unset($this->options['settings']['feeds_api_key']);
+			// In standalone mode, if a key exists, consider it valid
+			// This allows plugin to work without external API validation
+			if (isset($rss_post_importer) && method_exists($rss_post_importer, 'is_valid_key')) {
+				$this->is_key_valid = $rss_post_importer->is_valid_key($this->options['settings']['feeds_api_key']);
+			} else {
+				// Default to true if key exists (standalone mode)
+				$this->is_key_valid = !empty($this->options['settings']['feeds_api_key']);
 			}
-			// update options
-			$new_options = array(
-				'feeds' => $this->options['feeds'],
-				'settings' => $this->options['settings'],
-				'latest_import' => $this->options['latest_import'],
-				'imports' => $this->options['imports'],
-				'upgraded' => $this->options['upgraded']
-			);
-			// update in db
-			update_option('rss_pi_feeds', $new_options);
+			$this->options['settings']['is_key_valid'] = $this->is_key_valid;
+			
+			// Only update if function exists
+			if (function_exists('update_option')) {
+				$new_options = array(
+					'feeds' => $this->options['feeds'],
+					'settings' => $this->options['settings'],
+					'latest_import' => $this->options['latest_import'],
+					'imports' => $this->options['imports'],
+					'upgraded' => isset($this->options['upgraded']) ? $this->options['upgraded'] : array()
+				);
+				// update in db
+				update_option('rss_pi_feeds', $new_options);
+			}
 		} else {
-			$this->is_key_valid = $this->options['settings']['is_key_valid'];
+			$this->is_key_valid = isset($this->options['settings']['is_key_valid']) ? $this->options['settings']['is_key_valid'] : false;
+		}
+		} catch (Exception $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('RSS Post Importer: Error in load_options - ' . $e->getMessage());
+			}
+			$this->options = array('feeds' => array(), 'settings' => array());
+			$this->is_key_valid = false;
 		}
 	}
 
@@ -145,7 +176,7 @@ class rssPIAdmin {
 		// register scripts & styles
 		wp_enqueue_style('rss-pi', RSS_PI_URL . 'app/assets/css/style.css', array(), RSS_PI_VERSION);
 
-		wp_enqueue_style('rss-pi-jquery-ui-css', 'http://ajax.googleapis.com/ajax/libs/jqueryui/1.8.21/themes/redmond/jquery-ui.css', array(), RSS_PI_VERSION);
+		wp_enqueue_style('rss-pi-jquery-ui-css', 'https://ajax.googleapis.com/ajax/libs/jqueryui/1.8.21/themes/redmond/jquery-ui.css', array(), RSS_PI_VERSION);
 
 		wp_enqueue_script('jquery-ui-core');
 		wp_enqueue_script('jquery-ui-datepicker');
@@ -215,10 +246,10 @@ class rssPIAdmin {
 	 * Display the screen/ui
 	 */
 	function screen() {
-
-		// it'll process any submitted form data
-		// reload the options just in case
-		$this->load_options();
+		try {
+			// it'll process any submitted form data
+			// reload the options just in case
+			$this->load_options();
 
 		// display a success message
 		if ( isset($_GET['deleted_cache_purged']) || isset($_GET['settings-updated']) || isset($_GET['invalid_api_key']) || isset($_GET['import']) && @$_GET['settings-updated'] ) {
@@ -286,10 +317,35 @@ if ( feeds !== undefined ) {
 <?php
 		}
 
-		global $rss_post_importer;
+			global $rss_post_importer;
 
-		// include the template for the ui
-		include( RSS_PI_PATH . 'app/templates/admin-ui.php');
+			// Ensure page_link is set
+			if (!isset($rss_post_importer) || !isset($rss_post_importer->page_link) || empty($rss_post_importer->page_link)) {
+				if (isset($rss_post_importer) && function_exists('admin_url')) {
+					$rss_post_importer->page_link = admin_url('options-general.php?page=rss_pi');
+				} elseif (!isset($rss_post_importer)) {
+					// Create a minimal object if it doesn't exist
+					$rss_post_importer = new stdClass();
+					$rss_post_importer->page_link = function_exists('admin_url') ? admin_url('options-general.php?page=rss_pi') : '';
+				}
+			}
+
+			// include the template for the ui
+			$template_file = RSS_PI_PATH . 'app/templates/admin-ui.php';
+			if (file_exists($template_file)) {
+				include( $template_file );
+			} else {
+				echo '<div class="error"><p>' . __('Template file not found.', 'rss_pi') . '</p></div>';
+			}
+		} catch (Exception $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('RSS Post Importer: Error in screen() - ' . $e->getMessage());
+			}
+			echo '<div class="error"><p>' . __('An error occurred while loading the settings page. Please try refreshing.', 'rss_pi') . '</p></div>';
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				echo '<div class="error"><p><strong>Debug:</strong> ' . esc_html($e->getMessage()) . '</p></div>';
+			}
+		}
 	}
 
 	/**
@@ -310,7 +366,10 @@ if ( feeds !== undefined ) {
 	 */
 	function add_row() {
 
-		include( RSS_PI_PATH . 'app/templates/feed-table-row.php');
+		$template_file = RSS_PI_PATH . 'app/templates/feed-table-row.php';
+		if (file_exists($template_file)) {
+			include( $template_file );
+		}
 		die();
 	}
 
@@ -319,7 +378,10 @@ if ( feeds !== undefined ) {
 	 */
 	function ajax_stats() {
 
-		include( RSS_PI_PATH . 'app/templates/stats.php');
+		$template_file = RSS_PI_PATH . 'app/templates/stats.php';
+		if (file_exists($template_file)) {
+			include( $template_file );
+		}
 		die();
 	}
 
@@ -332,41 +394,57 @@ if ( feeds !== undefined ) {
 		$this->load_options();
 
 		// if there's nothing for processing or invalid data, bail
-		if ( ! isset($_POST['feed']) ) {
-			wp_send_json_error(array('message'=>'no feed provided'));
+		if ( ! isset($_POST['feed']) || ! function_exists('wp_send_json_error') ) {
+			if (function_exists('wp_send_json_error')) {
+				wp_send_json_error(array('message'=>'no feed provided'));
+			}
+			return;
 		}
 
 		$_found = false;
-		foreach ( $this->options['feeds'] as $id => $f ) {
-			if ( $f['id'] == $_POST['feed'] ) {
-				$_found = $id;
-				break;
+		if (isset($this->options['feeds']) && is_array($this->options['feeds'])) {
+			foreach ( $this->options['feeds'] as $id => $f ) {
+				if ( isset($f['id']) && $f['id'] == $_POST['feed'] ) {
+					$_found = $id;
+					break;
+				}
 			}
 		}
 		if ( $_found === false ) {
-			wp_send_json_error(array('message'=>'wrong feed id provided'));
+			if (function_exists('wp_send_json_error')) {
+				wp_send_json_error(array('message'=>'wrong feed id provided'));
+			}
+			return;
 		}
 
-		// TODO: make this better
+		// Plugin works standalone - skip API key validation
+		// Just ensure is_key_valid is set if key exists
 		if ( $_found == 0 ) {
-			// check for valid key only for the first feed
-			$this->is_key_valid = $rss_post_importer->is_valid_key($this->options['settings']['feeds_api_key']);
-			$this->options['settings']['is_key_valid'] = $this->is_key_valid;
-			// if the key is not fine
-			if (!empty($this->options['settings']['feeds_api_key']) && !$this->is_key_valid) {
-				// unset from settings
-				unset($this->options['settings']['feeds_api_key']);
+			$api_key = isset($this->options['settings']['feeds_api_key']) ? $this->options['settings']['feeds_api_key'] : '';
+			if (isset($rss_post_importer) && method_exists($rss_post_importer, 'is_valid_key')) {
+				try {
+					$this->is_key_valid = $rss_post_importer->is_valid_key($api_key);
+				} catch (Exception $e) {
+					// If validation fails, default to true if key exists (standalone mode)
+					$this->is_key_valid = !empty($api_key);
+				}
+			} else {
+				$this->is_key_valid = !empty($api_key);
 			}
+			$this->options['settings']['is_key_valid'] = $this->is_key_valid;
+			
 			// update options
-			$new_options = array(
-				'feeds' => $this->options['feeds'],
-				'settings' => $this->options['settings'],
-				'latest_import' => $this->options['latest_import'],
-				'imports' => $this->options['imports'],
-				'upgraded' => $this->options['upgraded']
-			);
-			// update in db
-			update_option('rss_pi_feeds', $new_options);
+			if (function_exists('update_option')) {
+				$new_options = array(
+					'feeds' => $this->options['feeds'],
+					'settings' => $this->options['settings'],
+					'latest_import' => isset($this->options['latest_import']) ? $this->options['latest_import'] : '',
+					'imports' => isset($this->options['imports']) ? $this->options['imports'] : 0,
+					'upgraded' => isset($this->options['upgraded']) ? $this->options['upgraded'] : array()
+				);
+				// update in db
+				update_option('rss_pi_feeds', $new_options);
+			}
 		}
 
 		$post_count = 0;
@@ -387,7 +465,10 @@ if ( feeds !== undefined ) {
 
 		if ( $items === false ) {
 			// there were an wp_error doing fetch_feed
-			wp_send_json_error(array('url'=>$f['url']));
+			if (function_exists('wp_send_json_error')) {
+				wp_send_json_error(array('url'=>$f['url']));
+			}
+			return;
 		}
 
 		// reformulate import count
@@ -411,7 +492,9 @@ if ( feeds !== undefined ) {
 		// log this
 		rssPILog::log($post_count);
 
-		wp_send_json_success(array('count'=>$post_count, 'url'=>$f['url']));
+		if (function_exists('wp_send_json_success')) {
+			wp_send_json_success(array('count'=>$post_count, 'url'=>$f['url']));
+		}
 
 	}
 
@@ -461,11 +544,15 @@ if ( feeds !== undefined ) {
 			$args['selected_cats'] = array();
 
 		if ($descendants_and_self) {
-			$categories = get_categories("child_of=$descendants_and_self&hierarchical=0&hide_empty=0");
+			$categories = get_categories(array(
+				'child_of' => $descendants_and_self,
+				'hierarchical' => 0,
+				'hide_empty' => 0
+			));
 			$self = get_category($descendants_and_self);
 			array_unshift($categories, $self);
 		} else {
-			$categories = get_categories('get=all');
+			$categories = get_categories(array('hide_empty' => false));
 		}
 		if ($checked_ontop) {
 			// Post process $categories rather than adding an exclude to the get_terms() query to keep the query the same across all posts (for any query cache)

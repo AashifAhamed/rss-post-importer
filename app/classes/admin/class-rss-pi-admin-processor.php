@@ -23,12 +23,12 @@ class rssPIAdminProcessor {
 	function process() {
 
 		// if there's nothing for processing or invalid data, bail
-		if (!isset($_POST['info_update']) || !wp_verify_nonce($_POST['rss_pi_nonce'], 'settings_page')) {
+		if (!isset($_POST['info_update']) || !isset($_POST['rss_pi_nonce']) || !wp_verify_nonce($_POST['rss_pi_nonce'], 'settings_page')) {
 			return;
 		}
 
 		// Get ids of feed-rows
-		$ids = explode(",", $_POST['ids']);
+		$ids = isset($_POST['ids']) ? explode(",", $_POST['ids']) : array();
 
 		// formulate the settings array
 		$settings = $this->process_settings();
@@ -112,7 +112,10 @@ class rssPIAdminProcessor {
 			$file = $_FILES['import_csv']['tmp_name'];
 			$fcount = file($file);
 			$linescount = count($fcount) - 1;
-			$file_handle = fopen($file, "r");
+			$file_handle = @fopen($file, "r");
+			if (!$file_handle) {
+				return $feeds;
+			}
 			$t = 0;
 			$titlearray = array();
 			while ($csv_line = fgetcsv($file_handle, 1024)) {
@@ -206,8 +209,19 @@ class rssPIAdminProcessor {
 
 		global $rss_post_importer;
 
-		// check if submitted api key is valid
-		$this->is_key_valid = $rss_post_importer->is_valid_key($settings['feeds_api_key']);
+		// Plugin works standalone - API key validation is optional
+		// In standalone mode, if a key exists, consider it valid
+		$api_key = isset($settings['feeds_api_key']) ? $settings['feeds_api_key'] : '';
+		if (isset($rss_post_importer) && method_exists($rss_post_importer, 'is_valid_key')) {
+			try {
+				$this->is_key_valid = $rss_post_importer->is_valid_key($api_key);
+			} catch (Exception $e) {
+				// If validation fails, default to true if key exists (standalone mode)
+				$this->is_key_valid = !empty($api_key);
+			}
+		} else {
+			$this->is_key_valid = !empty($api_key);
+		}
 		// save key validity state
 		$settings['is_key_valid'] = $this->is_key_valid;
 

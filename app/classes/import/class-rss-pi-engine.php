@@ -52,14 +52,26 @@ class rssPIEngine {
 	public function import_feed() {
 		global $rss_post_importer;
 
-		$this->load_options();
-
 		$post_count = 0;
 
-		// filter cache lifetime
-		add_filter('wp_feed_cache_transient_lifetime', array($this, 'frequency'));
+		try {
+			$this->load_options();
 
-		foreach ($this->options['feeds'] as $i => $f) {
+			if (!function_exists('add_filter') || !function_exists('update_option') || !function_exists('remove_filter')) {
+				if (defined('WP_DEBUG') && WP_DEBUG) {
+					error_log('RSS Post Importer: Required WordPress functions not available in import_feed');
+				}
+				return $post_count;
+			}
+
+			// filter cache lifetime
+			add_filter('wp_feed_cache_transient_lifetime', array($this, 'frequency'));
+
+			if (!isset($this->options['feeds']) || !is_array($this->options['feeds'])) {
+				return $post_count;
+			}
+
+			foreach ($this->options['feeds'] as $i => $f) {
 
 			// before the first feed, we check for key validity
 			if ( $i == 0 ) {
@@ -82,34 +94,47 @@ class rssPIEngine {
 				update_option('rss_pi_feeds', $new_options);
 			}
 
-			// prepare, import feed and count imported posts
-			if ( $items = $this->do_import($f) ) {
-				$post_count += count($items);
+				// prepare, import feed and count imported posts
+				if ( $items = $this->do_import($f) ) {
+					$post_count += count($items);
+				}
 			}
+
+			// reformulate import count
+			$imports = intval($this->options['imports']) + $post_count;
+
+			// update options
+			update_option('rss_pi_feeds', array(
+				'feeds' => $this->options['feeds'],
+				'settings' => $this->options['settings'],
+				'latest_import' => date("Y-m-d H:i:s"),
+				'imports' => $imports
+			));
+
+			global $rss_post_importer;
+			// reload options
+			if (isset($rss_post_importer) && method_exists($rss_post_importer, 'load_options')) {
+				$rss_post_importer->load_options();
+			}
+
+			remove_filter('wp_feed_cache_transient_lifetime', array($this, 'frequency'));
+
+			// log this
+			if (class_exists('rssPILog') && method_exists('rssPILog', 'log')) {
+				rssPILog::log($post_count);
+			}
+		} catch (Exception $e) {
+				if (defined('WP_DEBUG') && WP_DEBUG) {
+					error_log('RSS Post Importer: Error in import_feed - ' . $e->getMessage());
+				}
+				// Remove filter on error
+				if (function_exists('remove_filter')) {
+					remove_filter('wp_feed_cache_transient_lifetime', array($this, 'frequency'));
+				}
+			}
+
+			return $post_count;
 		}
-
-		// reformulate import count
-		$imports = intval($this->options['imports']) + $post_count;
-
-		// update options
-		update_option('rss_pi_feeds', array(
-			'feeds' => $this->options['feeds'],
-			'settings' => $this->options['settings'],
-			'latest_import' => date("Y-m-d H:i:s"),
-			'imports' => $imports
-		));
-
-		global $rss_post_importer;
-		// reload options
-		$rss_post_importer->load_options();
-
-		remove_filter('wp_feed_cache_transient_lifetime', array($this, 'frequency'));
-
-		// log this
-		rssPILog::log($post_count);
-
-		return $post_count;
-	}
 
 	/**
 	 * Dummy function for filtering because we can't use anon ones yet
@@ -188,23 +213,14 @@ class rssPIEngine {
 
 	/**
 	 * Formulate the right url
+	 * Plugin works standalone - returns original URL directly
 	 * 
 	 * @param string $url
 	 * @return string
 	 */
 	private function url($url) {
-
-		$key = $this->options['settings']['feeds_api_key'];
-
-		//if api key has been saved by user and is not empty
-		if (isset($key) && !empty($key)) {
-
-//			$api_url = 'http://176.58.108.28/fetch.php?key=' . $key . '&url=' . $url;
-			$api_url = 'http://176.58.108.28/fetch.php?key=' . $key . '&url=' . urlencode($url);
-
-			return $api_url;
-		}
-
+		// Plugin works standalone - return the original RSS URL directly
+		// No external API calls needed
 		return $url;
 	}
 
@@ -461,9 +477,15 @@ class rssPIEngine {
 		if ( isset($this->options['upgraded']['deleted_posts']) ) { // database migrated
 			// check if there is post with this source URL that is not trashed
 //			$posts = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} WHERE meta_key = 'rss_pi_source_md5' and meta_value = %s", $permalink_md5 ), 'ARRAY_A');
-			$posts = $wpdb->get_results( $wpdb->prepare( "SELECT meta_id FROM {$wpdb->postmeta} pm, {$wpdb->posts} p WHERE pm.meta_key = 'rss_pi_source_md5' AND ( pm.meta_value = %s OR pm.meta_value = %s ) AND pm.post_id = p.ID AND p.post_status <> 'trash'", $permalink_md5, $permalink_md5_new ), 'ARRAY_A');
-			if ( count($posts) ) {
-				$post_exists = TRUE;
+			if ( isset($wpdb->postmeta) && isset($wpdb->posts) ) {
+				$posts = $wpdb->get_results( $wpdb->prepare( 
+					"SELECT meta_id FROM {$wpdb->postmeta} pm, {$wpdb->posts} p WHERE pm.meta_key = 'rss_pi_source_md5' AND ( pm.meta_value = %s OR pm.meta_value = %s ) AND pm.post_id = p.ID AND p.post_status <> 'trash'", 
+					$permalink_md5, 
+					$permalink_md5_new 
+				), 'ARRAY_A');
+				if ( $posts && count($posts) ) {
+					$post_exists = TRUE;
+				}
 			}
 		}
 //		} else {
@@ -473,7 +495,15 @@ class rssPIEngine {
 			$domain_old = $this->get_domain($permalink);
 
 			//checking if post title already exists
-			if ($posts = $wpdb->get_results("SELECT ID FROM " . $wpdb->prefix . "posts WHERE post_title = '" . $title . "' and post_status = 'publish' ", 'ARRAY_A')) {
+			if ( isset($wpdb->posts) ) {
+				$posts = $wpdb->get_results($wpdb->prepare(
+					"SELECT ID FROM {$wpdb->posts} WHERE post_title = %s AND post_status = 'publish'",
+					$title
+				), 'ARRAY_A');
+			} else {
+				$posts = array();
+			}
+			if ($posts && is_array($posts) && count($posts) > 0) {
 				//checking if post source is also same 
 				foreach ($posts as $post) {
 					$post_id = $post['ID'];

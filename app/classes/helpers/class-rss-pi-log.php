@@ -23,7 +23,14 @@ class rssPILog {
 	function load_log() {
 
 		// get the log file's contents
-		$log = file_get_contents(RSS_PI_LOG_PATH . 'log.txt');
+		$log_file = RSS_PI_LOG_PATH . 'log.txt';
+		$log = '';
+		if (file_exists($log_file) && is_readable($log_file)) {
+			$log = file_get_contents($log_file);
+			if ($log === false) {
+				$log = '';
+			}
+		}
 
 		// include the template to display it
 		include( RSS_PI_PATH . 'app/templates/log.php');

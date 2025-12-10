@@ -19,6 +19,7 @@ if (!class_exists("Rss_pi_opml")) {
 		function __construct() {
 
 			$this->options = get_option('rss_pi_feeds', array());
+			$this->errors = array();
 		}
 
 		/*
@@ -67,8 +68,22 @@ if (!class_exists("Rss_pi_opml")) {
 
 			if ( $this->options['settings']['is_key_valid'] ) {
 
+				if (!isset($_FILES['import_opml']) || !isset($_FILES['import_opml']['tmp_name']) || !is_uploaded_file($_FILES['import_opml']['tmp_name'])) {
+					$this->errors[] = __('OPML file was not uploaded correctly.', 'rss_pi');
+					return $feeds;
+				}
+
 				$file = $_FILES['import_opml']['tmp_name'];
+				if (!file_exists($file) || !is_readable($file)) {
+					$this->errors[] = __('OPML file could not be read.', 'rss_pi');
+					return $feeds;
+				}
 				$opml = file_get_contents($file);
+				if ($opml === false) {
+					$this->errors[] = __('OPML file could not be read.', 'rss_pi');
+					@unlink($file);
+					return $feeds;
+				}
 				@unlink($file);
 
 				// apply some validation fixes:

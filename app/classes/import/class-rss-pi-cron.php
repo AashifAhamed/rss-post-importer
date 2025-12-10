@@ -22,10 +22,18 @@ class rssPICron {
 	 * Check and confirm scheduling
 	 */
 	function schedule() {
+		if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event') || !function_exists('time')) {
+			return;
+		}
 
-		if (!wp_next_scheduled('rss_pi_cron')) {
-
-			wp_schedule_event(time(), 'hourly', 'rss_pi_cron');
+		try {
+			if (!wp_next_scheduled('rss_pi_cron')) {
+				wp_schedule_event(time(), 'hourly', 'rss_pi_cron');
+			}
+		} catch (Exception $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('RSS Post Importer: Error scheduling cron - ' . $e->getMessage());
+			}
 		}
 	}
 
@@ -33,9 +41,18 @@ class rssPICron {
 	 * Import the feeds on schedule
 	 */
 	function do_hourly() {
-
-		$engine = new rssPIEngine();
-		$engine->import_feed();
+		try {
+			if (class_exists('rssPIEngine')) {
+				$engine = new rssPIEngine();
+				if (method_exists($engine, 'import_feed')) {
+					$engine->import_feed();
+				}
+			}
+		} catch (Exception $e) {
+			if (defined('WP_DEBUG') && WP_DEBUG) {
+				error_log('RSS Post Importer: Error in do_hourly cron - ' . $e->getMessage());
+			}
+		}
 	}
 
 }
